@@ -10,6 +10,7 @@ from smtp_stuff import sendMail
 from imap_stuff import checkMessages
 import datetime
 import string
+import array
 from time import gmtime, strftime
 
 
@@ -25,8 +26,10 @@ ip_enabled = False
 http_post_enabled = False
 
 COMMAND_GET_POS = 0
+COMMAND_RELEASE = 1
+COMMAND_SET_REPORT_INTERVAL = 2
 
-def send_mo_email(fcu_name,msg):
+def send_mo_email(msg):
 
     global email
     global incoming_server
@@ -47,7 +50,61 @@ def send_mo_email(fcu_name,msg):
     fd.close()
     
     sendMail(subject, body, user, recipient, password, outgoing_server, attachment)
+
+def log(string):
+    print string
     
+    #TODO logic for text logging
+
+def parse_text_report_no_fix(report):
+    report = report.split(":")
+    report = report[1]
+    report = report.split(",")
+
+    int_temp = float(report[0])
+    ext_temp = float(report[1])
+    if (int_temp > 100.0 or ext_temp >  100.0):
+        log("Probable invalid temperature readings.")
+    else:
+        log("Internal Temp:%.1f External Temp:%.1f" % ( int_temp, ext_temp))
+    
+def update_position(position):
+    print position
+    print "Now do something useful here like plot on google or report to APRS"
+    
+
+def parse_text_report(report):
+    report = report.split(":")
+    report = report[1]
+    report = report.split(",")
+    
+    time_str = report[0]
+    lat = float(report[1])
+    lon = float(report[2])
+    alt = float(report[3]) * 100
+    kts = float(report[4])
+    crs = float(report[5]) * 100
+    position = [time_str,lat,lon,alt,kts,crs]
+    int_temp = float(report[6])
+    ext_temp = float(report[7])
+    
+    if (int_temp > 100.0 or ext_temp >  100.0):
+        log("Probable invalid temperature readings.")
+    else:
+        log("Internal Temp:%.1f External Temp:%.1f" % ( int_temp, ext_temp))
+
+    update_position(position)
+
+MSG_TEXT_REPORT = 'U'
+MSG_TEXT_REPORT_NO_FIX = 'F'
+
+def parse_incoming(msg):
+    #TODO: My gawd, this is ugly.. lets do something else?
+    if msg[0] == MSG_TEXT_REPORT_NO_FIX:
+        parse_text_report_no_fix(msg)
+    elif msg[0] == MSG_TEXT_REPORT:
+        parse_text_report(msg)
+
 def email_check_task(name):
         
     #check e-mail for messages
@@ -55,15 +112,42 @@ def email_check_task(name):
         #print 'Checking email'
         msg,subject,received_msg,unread_msgs  = checkMessages(incoming_server,user,password)
         if received_msg:
-            print "I should parse data here"
+            print "Received Message", msg,"\r"
+            parse_incoming(msg)
             
         time.sleep(1.0)
+
+def SET_REPORT_INTERVAL(args):
+    print "Setting reporting interval"
+    if RepresentsInt(args[0]):
+        value = int(args[0])
+        byte1 = ( value >> 8 ) & 0xFF
+        byte0 = ( value ) & 0xFF
+        msg = array.array('B',[COMMAND_SET_REPORT_INTERVAL,byte1,byte0])
+        send_mo_email(msg)
+    else:
+        "First argument must be int seconds between 1 - 65532. 0 to disable automatic reporting."
         
 def GET_POS(args):
-    print "Do something useful here"
-    value = args[0]
+    print "Sending position request"
+    msg = array.array('B',[COMMAND_GET_POS,1,2,3]) #extra bytes for not good reason
+    send_mo_email(msg)
     
-    #TODO: we haven't actuallly implemented anything yet
+def RELEASE(args):
+    print "Sending ballast release command"
+    if RepresentsInt(args[0]):
+        msg = array.array('B',[COMMAND_RELEASE,int(args[0])])
+        print msg
+        send_mo_email(msg)
+    else:
+        "First argument must be int"
+
+def RepresentsInt(s):
+    try: 
+        int(s)
+        return True
+    except ValueError:
+        return False
     
 def process_cmd(cmd_str):
     
@@ -104,7 +188,7 @@ def main():
     parser.add_option("-i", "--in_srv", dest="in_srv", action="store", help="Incoming e-mail server url", metavar="IN_SRV")
     parser.add_option("-o", "--out_srv", dest="out_srv", action="store", help="Outoging e-mail server", metavar="OUT_SRV")
     parser.add_option("-m", "--mode", dest="mode", action="store", help="Mode: EMAIL,HTTP_POST,IP,NONE", default="NONE", metavar="MODE")
-    parser.add_option("-I", "--imei", dest="IMEI",action="store",help="IMEI of target modem.",metavar="IMEI")
+    parser.add_option("-I", "--imei", dest="imei",action="store",help="IMEI of target modem.",metavar="IMEI")
 
     (options, args) = parser.parse_args()
     
