@@ -12,6 +12,8 @@ import datetime
 import string
 import array
 from time import gmtime, strftime
+from socket import *
+
 
 
 user = ''
@@ -20,6 +22,15 @@ incoming_server = ''
 outgoing_server = ''
 password = ''
 imei = 0
+
+
+aprs_server = 'second.aprs.net'
+aprs_port = 20157
+aprs_password = ''
+aprs_callsign = ''
+aprs_address = '>APRS,TCPIP*:' 
+aprs_is_enabled = False
+# comment length is supposed to be 0 to 43 char. 
 
 email_enabled = False
 ip_enabled = False
@@ -68,8 +79,57 @@ def parse_text_report_no_fix(report):
     else:
         log("Internal Temp:%.1f External Temp:%.1f" % ( int_temp, ext_temp))
     
+def send_aprs_packet(position):
+        global aprs_callsign
+    
+        # create socket & connect to server
+        sSock = socket(AF_INET, SOCK_STREAM)
+        sSock.connect((aprs_server, aprs_port))
+        # logon
+        sSock.send('user ' + aprs_callsign + ' pass ' + aprs_password + ' vers "' + aprs_callsign + ' Python" \n')
+
+        #get position information and encode string
+        lat = position[1]
+        lon = position[2]
+        alt = position[3]
+        kts = position[4]
+        crs = position[5]
+        
+        #           deg               mm.mm
+        lat_str = "=%02d" % ( lat ) + "%02.2f" % ( ( lat % 1 )  * 60 )
+        if lat > 0:
+            lat_str += "N"
+        else:
+            lat_str += "S"
+        
+        #           deg               mm.mm
+        lon_str = "%03d" % ( abs(lon) ) + "%02.2f" % ( ( lon % 1 )  * 60 )
+        if lat > 0:
+            lon_str += "E"
+        else:
+            lon_str += "W"        
+
+        #combine the two
+        position_str = lat_str + "/" + lon_str
+        
+        #add course, speed, and altitude
+        comment = "O%03d/%03d/A=%06d" % (crs,kts,alt)
+        #comment = "OHELP ME"
+        print aprs_callsign + aprs_address + position_str + comment
+        sSock.send(aprs_callsign + aprs_address + position_str + comment +'\n')
+        print("packet sent: " + time.ctime() )
+        # close socket -- must be closed to avoidbuffer overflow
+        sSock.shutdown(0)
+        sSock.close()
+
+    
+
 def update_position(position):
     print position
+    
+    if aprs_is_enabled:
+        send_aprs_packet(position)
+    
     print "Now do something useful here like plot on google or report to APRS"
     
 
@@ -181,6 +241,13 @@ def main():
     global ip_enabled
     global http_post_enabled
 
+    global aprs_server 
+    global aprs_port 
+    global aprs_password
+    global aprs_callsign
+    global aprs_is_enabled
+    
+
     parser = OptionParser()
     parser.add_option("-p", "--passwd", dest="passwd", action="store", help="Password", metavar="PASSWD")
     parser.add_option("-u", "--user", dest="user", action="store", help="E-mail account username", metavar="USER")
@@ -189,8 +256,25 @@ def main():
     parser.add_option("-o", "--out_srv", dest="out_srv", action="store", help="Outoging e-mail server", metavar="OUT_SRV")
     parser.add_option("-m", "--mode", dest="mode", action="store", help="Mode: EMAIL,HTTP_POST,IP,NONE", default="NONE", metavar="MODE")
     parser.add_option("-I", "--imei", dest="imei",action="store",help="IMEI of target modem.",metavar="IMEI")
-
+    parser.add_option("-A", "--aprs-server",dest="aprs_server",action="store",help="APRS server",metavar="APRS_SERVER")
+    parser.add_option("-a", "--aprs-port",dest="aprs_port",action="store",help="APRS port",metavar="APRS_PORT")
+    parser.add_option("-s", "--aprs-password",dest="aprs_password",action="store",help="APRS password",metavar="APRS_PASSWORD")
+    parser.add_option("-c", "--aprs-callsign",dest="aprs_callsign",action="store",help="APRS Callsign",metavar="APRS_CALLSIGN")
+    
     (options, args) = parser.parse_args()
+    
+
+    if options.aprs_server:
+        aprs_server = options.aprs_server
+    if options.aprs_port:
+        aprs_port = options.aprs_port
+    if options.aprs_password:
+        aprs_password = options.aprs_password
+        aprs_is_enabled = True
+    if options.aprs_callsign:
+        aprs_callsign = options.aprs_callsign
+
+ 
     
     #check for valid arguments
     if options.mode == "EMAIL":
@@ -216,9 +300,13 @@ def main():
     password = options.passwd
     imei = options.imei
     
+    
+    
     #spawn task to monitor email for incoming messages
     thread.start_new_thread ( email_check_task, ( "Thread-1" , ) )
     rx_buffer = ''
+    
+
     
     while(1):
         "Enter 'x' to exit"
