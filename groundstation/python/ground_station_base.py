@@ -82,6 +82,8 @@ def parse_text_report_no_fix(report):
 def send_aprs_packet(position):
         global aprs_callsign
     
+        #print position
+    
         # create socket & connect to server
         sSock = socket(AF_INET, SOCK_STREAM)
         sSock.connect((aprs_server, aprs_port))
@@ -91,59 +93,55 @@ def send_aprs_packet(position):
         #get position information and encode string
         lat = position[1]
         lon = position[2]
-        alt = position[3]
-        kts = position[4]
-        crs = position[5]
+        alt = 100
+        kts = 0.1
+        crs = 30
         
         #           deg               mm.mm
-        lat_str = "=%02d" % ( lat ) + "%02.2f" % ( ( lat % 1 )  * 60 )
+        lat_str = "=%02d" % ( lat ) + "%05.2f" % ( ( abs(lat) % 1 )  * 60.0 )
         if lat > 0:
             lat_str += "N"
         else:
             lat_str += "S"
         
         #           deg               mm.mm
-        lon_str = "%03d" % ( abs(lon) ) + "%02.2f" % ( ( lon % 1 )  * 60 )
+        lon_str = "%03d" % ( abs(lon) ) + "%05.2f" % ( ( abs(lon) % 1 )  * 60.0 )
         if lat > 0:
-            lon_str += "E"
+            lon_str += "W"
         else:
-            lon_str += "W"        
+            lon_str += "E"        
 
         #combine the two
         position_str = lat_str + "/" + lon_str
         
         #add course, speed, and altitude
         comment = "O%03d/%03d/A=%06d" % (crs,kts,alt)
-        #comment = "OHELP ME"
-        print aprs_callsign + aprs_address + position_str + comment
+        #comment = "-HELP ME"
+        #print aprs_callsign + aprs_address + position_str + comment
         sSock.send(aprs_callsign + aprs_address + position_str + comment +'\n')
-        print("packet sent: " + time.ctime() )
+        print("Packet sent to APRS: " + time.ctime() )
         # close socket -- must be closed to avoidbuffer overflow
         sSock.shutdown(0)
         sSock.close()
 
-    
+
 
 def update_position(position):
-    print position
-    
     if aprs_is_enabled:
         send_aprs_packet(position)
     
-    print "Now do something useful here like plot on google or report to APRS"
     
 
 def parse_text_report(report):
     report = report.split(":")
     report = report[1]
     report = report.split(",")
-    
     time_str = report[0]
     lat = float(report[1])
     lon = float(report[2])
-    alt = float(report[3]) * 100
+    alt = float(report[3])
     kts = float(report[4])
-    crs = float(report[5]) * 100
+    crs = float(report[5])
     position = [time_str,lat,lon,alt,kts,crs]
     int_temp = float(report[6])
     ext_temp = float(report[7])
@@ -152,6 +150,9 @@ def parse_text_report(report):
         log("Probable invalid temperature readings.")
     else:
         log("Internal Temp:%.1f External Temp:%.1f" % ( int_temp, ext_temp))
+
+    print "Report - Lat:",lat,"Lon:",lon,"Alt(ft):",alt,"Speed(kts):",kts,"Course(deg):",crs
+
 
     update_position(position)
 
@@ -300,13 +301,9 @@ def main():
     password = options.passwd
     imei = options.imei
     
-    
-    
     #spawn task to monitor email for incoming messages
     thread.start_new_thread ( email_check_task, ( "Thread-1" , ) )
     rx_buffer = ''
-    
-
     
     while(1):
         "Enter 'x' to exit"
